@@ -1,0 +1,20 @@
+# Entornos virtuales y cache de Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Salidas autogeneradas por el simulador / CLI
+demo_salida/
+reporte_qa.csv
+ruta_vuelo.kml
+ruta_vuelo_waypoints.csv
+manifiesto.json
+planilla_conteo.csv
+
+# Archivos temporales de sistema / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
