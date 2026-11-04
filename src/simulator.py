@@ -442,6 +442,9 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=48, descartadas=2,
 
     ruta_html = os.path.join(carpeta_web, "panel_agrodron.html")
     escribir_panel_html(ruta_html, datos_panel)
+    if os.path.normpath(carpeta_salida) == "output":
+        os.makedirs("public", exist_ok=True)
+        escribir_panel_html(os.path.join("public", "index.html"), datos_panel)
 
     if abrir_navegador:
         try:
@@ -470,3 +473,4 @@ def escribir_panel_html(ruta_html, datos):
     html = PLANTILLA_HTML.replace("__DATOS_AGRODRON__", json_seguro)
     with open(ruta_html, "w", encoding="utf-8") as f:
         f.write(html)
+
