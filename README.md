@@ -5,29 +5,41 @@ Universidad de Caldas · Ingeniería de Sistemas y Computación · Vereda La Cab
 
 ---
 
-## Contenido del repositorio
+## Estructura del Proyecto
 
-| Archivo | Descripción |
-|---|---|
-| `agrodron_sprint1_epica1_v3.py` | Script principal CLI: calibración (`CA1`), plan de vuelo (`CA2/CA3`), ruta KML/CSV, conteo en tierra (`CA5`), auditoría óptica (`CA4`), cobertura real por GPS, carga a AWS S3 con manifiesto (`Épica 2`) y modo `demo`. |
-| `simulador_agrodron.py` | Generador de cultivo sintético en la Vereda La Cabaña (1,0 ha, 2.352 plantas), fotos aéreas `.jpg` con EXIF GPS, ortomosaico y panel interactivo HTML con mapa satelital y animación del dron. |
-| `test_agrodron.py` | Suite de 41 pruebas unitarias (`unittest`). |
-| `requirements.txt` | Dependencias (`numpy`, `opencv-python-headless`, `Pillow`, `boto3`). |
-| `PLAN_MEJORAS.md` | Plan detallado de mejoras, fases implementadas y guía de arquitectura. |
-| `Entregable_Sprint1_Epica1_AgroDron_v3.docx` | Documento de entregable base del Sprint 1 / Épica 1. |
+```text
+agrodron.io/
+├── src/
+│   ├── core.py            # Plan de vuelo, calibración, QA óptico, cobertura GPS y carga S3
+│   ├── simulator.py       # Simulador rural (Vereda La Cabaña), fotos EXIF GPS y ortomosaico
+│   └── ui_template.py     # Estación web editorial-técnica + Walkthrough CSS (960×620)
+├── tests/
+│   └── test_agrodron.py   # Suite de 41 pruebas unitarias (unittest)
+├── docs/
+│   ├── PLAN_MEJORAS.md
+│   ├── agrodron-vuelo-brief.md
+│   └── Entregable_Sprint1_Epica1_AgroDron_v3.docx
+├── output/                # Salidas generadas automáticamente al correr `demo`
+│   ├── fotos_sd/          # Fotografías JPG (4000×3000) por cuadrante (Q1..Q4) con GPS EXIF
+│   ├── reportes/          # reporte_qa.csv, planilla_conteo.csv, manifiesto.json
+│   ├── rutas/             # ruta_vuelo.kml, ruta_vuelo_waypoints.csv
+│   └── web/               # panel_agrodron.html, ortomosaico.jpg
+├── agrodron_sprint1_epica1_v3.py  # Punto de entrada CLI (trazabilidad H5)
+└── requirements.txt
+```
 
 ---
 
-## Instalación rápida
+## Instalación
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-## Ejecución de la simulación completa (Mapa + Dron + Fotos + QA)
+## Ejecución de la demostración completa
 
-Genera el cultivo en la zona rural de la **Vereda La Cabaña (`5.0949, -75.5891`)**, las fotos con GPS, el ortomosaico, el reporte de auditoría, el manifiesto S3 y abre el panel interactivo en el navegador:
+Genera el cultivo en la zona rural de la **Vereda La Cabaña (`5.0949, -75.5891`)**, las fotos por cuadrante (`output/fotos_sd/Q1..Q4`), los reportes (`output/reportes/`), las rutas KML/CSV (`output/rutas/`) y abre la estación web (`output/web/panel_agrodron.html`):
 
 ```powershell
 .venv\Scripts\python agrodron_sprint1_epica1_v3.py demo
@@ -36,5 +48,5 @@ Genera el cultivo en la zona rural de la **Vereda La Cabaña (`5.0949, -75.5891`
 ## Ejecución de las pruebas
 
 ```powershell
-.venv\Scripts\python -m unittest test_agrodron -v
+.venv\Scripts\python -m unittest discover -s tests -v
 ```

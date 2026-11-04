@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-import agrodron_sprint1_epica1_v3 as ad
+from src import core as ad
 
 
 def foto(ruta, nitida=True, gps=True, gps_vacio=False):
@@ -398,10 +398,10 @@ class SimulacionDemo(unittest.TestCase):
                                       "--descartadas", "1", "--no-abrir")
             self.assertEqual(codigo, 0)
             self.assertIn("Simulacion completada", salida)
-            self.assertTrue(os.path.isfile(os.path.join(d, "panel_agrodron.html")))
-            self.assertTrue(os.path.isfile(os.path.join(d, "ortomosaico.jpg")))
-            self.assertTrue(os.path.isfile(os.path.join(d, "reporte_qa.csv")))
-            self.assertTrue(os.path.isfile(os.path.join(d, "manifiesto.json")))
+            self.assertTrue(os.path.isfile(os.path.join(d, "web", "panel_agrodron.html")))
+            self.assertTrue(os.path.isfile(os.path.join(d, "web", "ortomosaico.jpg")))
+            self.assertTrue(os.path.isfile(os.path.join(d, "reportes", "reporte_qa.csv")))
+            self.assertTrue(os.path.isfile(os.path.join(d, "reportes", "manifiesto.json")))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ __pycache__/
 *$py.class
 
 # Salidas autogeneradas por el simulador / CLI
+output/
 demo_salida/
 reporte_qa.csv
 ruta_vuelo.kml
