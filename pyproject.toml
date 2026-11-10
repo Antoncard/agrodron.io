@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agrodron"
+version = "1.0.0"
+description = "Conteo de plantas por hectarea con fotos de dron (Universidad de Caldas)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy==2.2.6",
+    "opencv-python-headless==4.11.0.86",
+    "Pillow==11.2.1",
+]
+
+[project.scripts]
+agrodron = "src.cli:main"
+

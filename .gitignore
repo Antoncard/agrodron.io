@@ -13,6 +13,8 @@ dist/
 output/
 demo_salida/
 almacen/
+releases/
+*.docx
 reporte_qa.csv
 ruta_vuelo.kml
 ruta_vuelo_waypoints.csv

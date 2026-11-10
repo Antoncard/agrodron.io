@@ -1,8 +1,10 @@
-# AgroDron - Sprint 1 / Epica 1 (v3)
-# Punto de entrada principal (trazabilidad H5). La implementacion vive en src/
+# Punto de entrada minimo de AgroDron (llama a src.cli.main)
 import sys
-from src import core as _core
-from src.core import *  # noqa: F401,F403
+
+from src import cli
+from src.almacen import *  # noqa: F401,F403
+from src.cli import main  # noqa: F401
+from src.dominio import *  # noqa: F401,F403
 
 if __name__ == "__main__":
-    sys.exit(_core.main())
+    sys.exit(cli.main())
