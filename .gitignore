@@ -4,15 +4,23 @@ venv/
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
 
-# Salidas autogeneradas por el simulador / CLI
+# Salidas autogeneradas por el simulador / CLI / almacen local
 output/
 demo_salida/
+almacen/
 reporte_qa.csv
 ruta_vuelo.kml
 ruta_vuelo_waypoints.csv
 manifiesto.json
 planilla_conteo.csv
+
+# Archivos de trabajo local / prompts
+PROMPT_ANTIGRAVITY_agrodron_io.md
 
 # Archivos temporales de sistema / IDE
 .DS_Store

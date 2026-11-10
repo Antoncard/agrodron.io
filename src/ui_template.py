@@ -781,7 +781,7 @@ PLANTILLA_HTML = """<!DOCTYPE html>
       <button class="btn-tech primary" id="btn-anim-loop">Reproducir Ciclo Automático</button>
       <button class="btn-tech" id="btn-freeze-before">1. Estado Inicial (30 m · H1)</button>
       <button class="btn-tech" id="btn-freeze-action">2. Escaneo Óptico QA</button>
-      <button class="btn-tech" id="btn-freeze-after">3. Estado Corregido (25 m · S3)</button>
+      <button class="btn-tech" id="btn-freeze-after">3. Estado Corregido (25 m · QA)</button>
     </div>
   </div>
 
@@ -935,10 +935,10 @@ PLANTILLA_HTML = """<!DOCTYPE html>
 
       <div class="panel-card">
         <div class="panel-header">
-          <h2>Manifiesto de Almacenamiento en Nube (AWS S3 · Épica 2)</h2>
-          <span class="meta-note">AES256 + Content-MD5</span>
+          <h2>Manifiesto del lote (Épica 2)</h2>
+          <span class="meta-note">Verificación MD5 local</span>
         </div>
-        <div id="box-s3" style="font-size:0.81rem;color:var(--text-dim)"></div>
+        <div id="box-manifiesto" style="font-size:0.81rem;color:var(--text-dim)"></div>
       </div>
     </div>
   </div>
@@ -966,7 +966,7 @@ const kpis = [
   { lbl: "Cobertura Efectiva (CA2)", val: `${D.cobertura.cobertura_pct} %`, sub: `Q1:${D.cobertura.por_cuadrante.Q1} Q2:${D.cobertura.por_cuadrante.Q2} Q3:${D.cobertura.por_cuadrante.Q3} Q4:${D.cobertura.por_cuadrante.Q4}` },
   { lbl: "Ground Truth (CA5)", val: `${D.conteo.conteo.toLocaleString()} pl.`, sub: `Esperadas: ${D.conteo.esperadas.toLocaleString()} (${D.conteo.diferencia})` },
   { lbl: "Autonomía Estimada", val: `${D.plan_25.tiempo_vuelo_min} min · ${D.plan_25.baterias} bat`, sub: `Trayecto: ${D.plan_25.distancia_m} m a 4,5 m/s` },
-  { lbl: "Lote S3 Certificado", val: `${D.manifiesto.totales.SIMULADO || D.manifiesto.archivos.length} objetos`, sub: `${D.manifiesto.bucket}` }
+  { lbl: "Lote Almacenado", val: `${D.manifiesto.totales.COPIADO || D.manifiesto.totales.YA_EXISTE || D.manifiesto.archivos.length} archivos`, sub: `${D.manifiesto.ruta_lote}` }
 ];
 document.getElementById("kpi-grid").innerHTML = kpis.map(k =>
   `<div class="metric-cell"><div class="m-label">${k.lbl}</div><div class="m-val">${k.val}</div><div class="m-sub">${k.sub}</div></div>`).join("");
@@ -986,9 +986,9 @@ document.getElementById("tabla-conteo").innerHTML = `
   <tr style="font-weight:700"><td>TOTAL LOTE</td><td class="mono">${D.conteo.esperadas}</td><td class="mono">${D.conteo.conteo}</td><td class="mono">${D.conteo.diferencia} (${D.conteo.porcentaje}%)</td></tr>
 `;
 
-document.getElementById("box-s3").innerHTML = `
-  <div style="font-family:'JetBrains Mono',monospace;color:var(--text)">s3://${D.manifiesto.bucket}/${D.manifiesto.prefijo}</div>
-  <div style="margin-top:4px">Fotogramas aprobados para ingesta: <b>${D.manifiesto.archivos.length}</b> (${(D.manifiesto.bytes_totales/1024/1024).toFixed(2)} MB) · Verificación <code>Content-MD5</code> y cifrado <code>AES256</code>.</div>
+document.getElementById("box-manifiesto").innerHTML = `
+  <div style="font-family:'JetBrains Mono',monospace;color:var(--text)">${D.manifiesto.ruta_lote}</div>
+  <div style="margin-top:4px">Fotogramas aprobados y guardados en almacén local: <b>${D.manifiesto.archivos.length}</b> (${(D.manifiesto.bytes_totales/1024/1024).toFixed(2)} MB) · Verificación de integridad <code>MD5</code>.</div>
 `;
 
 /* ==========================================================================
@@ -1025,7 +1025,7 @@ function setStageTextAfter() {
   document.getElementById("st-val-int").textContent = "1,25 s";
   document.getElementById("st-val-qa").textContent = `${D.qa.aceptadas} OK / ${D.qa.descartadas} rechazadas`;
   document.getElementById("st-status-msg").textContent =
-    `CA1–CA5 CUMPLIDOS: Cobertura ${D.cobertura.cobertura_pct}% verificada y manifiesto listo para AWS S3.`;
+    `CA1–CA5 CUMPLIDOS: Cobertura ${D.cobertura.cobertura_pct}% verificada y manifiesto local generado.`;
 }
 
 function runCycle() {
@@ -1368,3 +1368,4 @@ seleccionarFoto(0);
 </body>
 </html>
 """
+

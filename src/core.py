@@ -1,25 +1,32 @@
 # AgroDron - Sprint 1 / Epica 1 (v3)
 # Calibracion (1.1.1), plan de vuelo y ruta KML (1.1.2), conteo de referencia (1.2.1),
-# auditoria de fotos, cuadrantes y cobertura por GPS (1.2.2) y carga a S3 (Epica 2).
+# auditoria de fotos, cuadrantes y cobertura por GPS (1.2.2) y almacenamiento local (Epica 2).
 import argparse
-import base64
 import csv
-import hashlib
 import json
 import math
 import os
-import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
+
+from src.almacen import (
+    SEGMENTO_VALIDO,
+    contar_estados,
+    copiar_imagen,
+    copiar_lote,
+    crear_manifiesto,
+    guardar_manifiesto,
+    md5_archivo,
+    ruta_relativa_lote,
+    validar_destino,
+)
 
 # Requisitos del proyecto
 GSD_MAX_CM_PX = 1.0
 NITIDEZ_MINIMA = 120.0
 RESOLUCION = (4000, 3000)      # ancho, alto en px
 TAMANO_MINIMO = 10 * 1024      # bytes
-UMBRAL_MULTIPARTE = 16 * 1024 * 1024   # desde este tamano se sube por partes
 GPS_TAG = 0x8825               # bloque GPS en EXIF
 GPS_LATITUD, GPS_LONGITUD = 2, 4   # etiquetas dentro del bloque GPS
 
@@ -29,10 +36,6 @@ OBTURACION_MAXIMA_S = 1 / 1000
 HDOP_MAXIMO = 1.0              # recomendado; por encima se advierte
 
 EXTENSIONES = (".jpg", ".jpeg")
-
-# Configuracion de AWS (se puede cambiar con variables de entorno)
-BUCKET = os.environ.get("AGRODRON_BUCKET", "agrodron-manizales-prod-us-east-2")
-REGION = os.environ.get("AGRODRON_REGION", "us-east-2")
 
 
 # ---------- Calibracion (1.1.1) ----------
@@ -473,135 +476,7 @@ def leer_aceptadas(reporte_csv):
                 if fila["dictamen"] == "ACEPTADA"}
 
 
-# ---------- Carga a S3 (Epica 2) ----------
-
-SEGMENTO_VALIDO = re.compile(r"^[A-Za-z0-9_-]+$")
-
-
-def validar_destino(finca, lote, fecha):
-    for nombre, valor in (("finca", finca), ("lote", lote)):
-        if not SEGMENTO_VALIDO.match(valor):
-            raise ValueError(f"{nombre} solo admite letras, numeros, '_' y '-': {valor!r}")
-    try:
-        datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError:
-        raise ValueError(f"fecha debe ser AAAA-MM-DD: {fecha!r}") from None
-
-
-def md5_archivo(ruta):
-    h = hashlib.md5()
-    with open(ruta, "rb") as f:
-        for bloque in iter(lambda: f.read(65536), b""):
-            h.update(bloque)
-    return h.digest()
-
-
-def ya_existe(cliente, clave, md5_hex):
-    # True si S3 ya tiene el mismo archivo. En subidas simples el ETag es el MD5;
-    # en multiparte no, por eso tambien se guarda el MD5 en los metadatos.
-    try:
-        cab = cliente.head_object(Bucket=BUCKET, Key=clave)
-    except Exception:
-        return False
-    return (cab.get("ETag", "").strip('"') == md5_hex
-            or cab.get("Metadata", {}).get("md5") == md5_hex)
-
-
-def subir_imagen(ruta, finca, lote, fecha, dry_run=True, cliente=None, rel=None):
-    rel = rel or os.path.basename(ruta)
-    if not os.path.exists(ruta):
-        return {"archivo": rel, "estado": "NO_EXISTE"}
-    tamano = os.path.getsize(ruta)
-    if tamano < TAMANO_MINIMO:
-        return {"archivo": rel, "estado": "MUY_PEQUENA"}
-
-    clave = f"{prefijo_s3(finca, lote, fecha)}{rel}"
-    md5 = md5_archivo(ruta)
-    multiparte = tamano >= UMBRAL_MULTIPARTE
-    resultado = {"archivo": rel, "clave": clave, "md5": md5.hex(), "bytes": tamano,
-                 "multiparte": multiparte}
-
-    if dry_run:
-        return {**resultado, "estado": "SIMULADO"}
-
-    extra = {"ContentType": "image/jpeg", "ServerSideEncryption": "AES256",
-             "Metadata": {"md5": md5.hex()}}
-    try:
-        if ya_existe(cliente, clave, md5.hex()):
-            return {**resultado, "estado": "YA_EXISTE"}
-        if multiparte:
-            # boto3 parte el archivo y reintenta cada parte por separado
-            cliente.upload_file(ruta, BUCKET, clave, ExtraArgs=extra)
-        else:
-            # S3 rechaza el archivo si el MD5 no coincide
-            with open(ruta, "rb") as f:
-                cliente.put_object(Bucket=BUCKET, Key=clave, Body=f,
-                                   ContentMD5=base64.b64encode(md5).decode(), **extra)
-    except Exception as e:  # un fallo no detiene el resto del lote
-        return {**resultado, "estado": "ERROR", "error": str(e)}
-    return {**resultado, "estado": "SUBIDO"}
-
-
-def prefijo_s3(finca, lote, fecha):
-    return f"raw/{finca}/{lote}/{fecha}/"
-
-
-def crear_cliente_s3():
-    import boto3
-    from botocore.config import Config
-    return boto3.client("s3", region_name=REGION,
-                        config=Config(retries={"max_attempts": 5, "mode": "standard"}))
-
-
-def subir_lote(carpeta, finca, lote, fecha, dry_run=True, hilos=8,
-               solo=None, recursivo=False, cliente=None):
-    # solo: conjunto de rutas relativas permitidas (p. ej. las ACEPTADAS del QA)
-    validar_destino(finca, lote, fecha)
-    if not os.path.isdir(carpeta):
-        raise FileNotFoundError(f"No existe la carpeta {carpeta}")
-
-    if not dry_run and cliente is None:
-        cliente = crear_cliente_s3()
-
-    rels = listar_fotos(carpeta, recursivo or solo is not None)
-    if solo is not None:
-        rels = [r for r in rels if r in solo]
-    with ThreadPoolExecutor(max_workers=hilos) as pool:
-        return list(pool.map(
-            lambda r: subir_imagen(os.path.join(carpeta, r), finca, lote, fecha,
-                                   dry_run, cliente, rel=r), rels))
-
-
-def contar_estados(resultados):
-    estados = {}
-    for r in resultados:
-        estados[r["estado"]] = estados.get(r["estado"], 0) + 1
-    return estados
-
-
-def crear_manifiesto(resultados, finca, lote, fecha):
-    # Inventario del lote: que se subio, con que MD5 y en que estado quedo
-    return {
-        "proyecto": "AgroDron",
-        "finca": finca, "lote": lote, "fecha_vuelo": fecha,
-        "bucket": BUCKET, "prefijo": prefijo_s3(finca, lote, fecha),
-        "generado": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "totales": contar_estados(resultados),
-        "bytes_totales": sum(r.get("bytes", 0) for r in resultados),
-        "archivos": [{k: r[k] for k in ("archivo", "clave", "md5", "bytes", "estado")
-                      if k in r} for r in resultados],
-    }
-
-
-def subir_manifiesto(cliente, manifiesto):
-    # Se guarda junto a las fotos como manifiesto.json
-    cuerpo = json.dumps(manifiesto, ensure_ascii=False, indent=2).encode("utf-8")
-    clave = f"{manifiesto['prefijo']}manifiesto.json"
-    cliente.put_object(Bucket=BUCKET, Key=clave, Body=cuerpo,
-                       ContentMD5=base64.b64encode(hashlib.md5(cuerpo).digest()).decode(),
-                       ContentType="application/json", ServerSideEncryption="AES256")
-    return clave
-
+# ---------- Almacenamiento local (Epica 2) ----------
 
 def parcela_desde_args(args):
     return Parcela(args.lat, args.lon, args.ancho, args.largo, args.rumbo)
@@ -678,29 +553,36 @@ def cmd_qa(args):
     return 0
 
 
-def cmd_subir(args):
+def cmd_guardar(args):
     solo = leer_aceptadas(args.solo_aceptadas) if args.solo_aceptadas else None
-    cliente = crear_cliente_s3() if args.real else None
-    resultados = subir_lote(args.carpeta, args.finca, args.lote, args.fecha,
-                            dry_run=not args.real, hilos=args.hilos,
-                            solo=solo, recursivo=args.recursivo, cliente=cliente)
+    resultados = copiar_lote(
+        args.carpeta,
+        args.destino,
+        args.finca,
+        args.lote,
+        args.fecha,
+        solo=solo,
+        recursivo=args.recursivo,
+        hilos=args.hilos,
+    )
     for r in resultados:
         if r["estado"] == "ERROR":
             print(f"ERROR {r['archivo']}: {r['error']}", file=sys.stderr)
     print(contar_estados(resultados))
 
     manifiesto = crear_manifiesto(resultados, args.finca, args.lote, args.fecha)
-    if args.manifiesto:
-        with open(args.manifiesto, "w", encoding="utf-8") as f:
-            json.dump(manifiesto, f, ensure_ascii=False, indent=2)
-        print(f"manifiesto local: {args.manifiesto}")
-    if args.real:
-        try:
-            print(f"manifiesto en S3: {subir_manifiesto(cliente, manifiesto)}")
-        except Exception as e:
-            print(f"ERROR al subir el manifiesto: {e}", file=sys.stderr)
-            return 1
+    ruta_m = args.manifiesto or os.path.join(
+        args.destino, "raw", args.finca, args.lote, args.fecha, "manifiesto.json"
+    )
+    guardar_manifiesto(ruta_m, manifiesto)
+    print(f"manifiesto local: {ruta_m}")
     return 1 if any(r["estado"] == "ERROR" for r in resultados) else 0
+
+
+def cmd_subir(args):
+    # Alias en desuso que redirige a guardar
+    print("AVISO: el subcomando 'subir' esta en desuso; usa 'guardar'", file=sys.stderr)
+    return cmd_guardar(args)
 
 
 def cmd_ruta(args):
@@ -738,14 +620,14 @@ def cmd_cobertura(args):
 
 
 def cmd_flujo(args):
-    # QA + carga solo de las aceptadas, en un paso
+    # QA + guardar solo las aceptadas, en un paso
     r = auditar_lote(args.carpeta, args.reporte, args.recursivo, args.hilos)
     if "error" in r:
         print(r["error"], file=sys.stderr)
         return 2
     print(f"QA: {r['aceptadas']} aceptadas / {r['descartadas']} descartadas")
     args.solo_aceptadas = args.reporte
-    return cmd_subir(args)
+    return cmd_guardar(args)
 
 
 def cmd_demo(args):
@@ -764,7 +646,7 @@ def cmd_demo(args):
     print(f"  Fotos generadas: {res['fotos_generadas']} "
           f"({res['aceptadas']} aceptadas / {res['descartadas']} descartadas)")
     print(f"  Cobertura parcela: {res['cobertura_pct']} %")
-    print(f"  Subidas S3 simuladas: {res['subidas_simuladas']}")
+    print(f"  Fotos guardadas en almacen: {res['guardadas']}")
     print(f"  Panel interactivo (mapa + dron): {res['panel_html']}")
     return 0
 
@@ -802,11 +684,11 @@ def main(argv=None):
                        help="incluye subcarpetas (p. ej. Q1..Q4)")
         x.add_argument("--hilos", type=int, default=4)
 
-    def opciones_subir(x):
+    def opciones_guardar(x):
+        x.add_argument("--destino", default="almacen", help="carpeta local de almacenamiento")
         x.add_argument("--finca", required=True)
         x.add_argument("--lote", required=True)
         x.add_argument("--fecha", required=True, help="AAAA-MM-DD")
-        x.add_argument("--real", action="store_true", help="sube de verdad a AWS")
         x.add_argument("--manifiesto", metavar="JSON",
                        help="guarda el manifiesto del lote en este archivo local")
 
@@ -838,18 +720,27 @@ def main(argv=None):
     q.add_argument("--json", action="store_true")
     q.set_defaults(fn=cmd_qa)
 
-    s = sub.add_parser("subir", help="sube las fotos a S3 (simulacion por defecto)")
+    gd = sub.add_parser("guardar", help="copia las fotos al almacen local con manifiesto")
+    gd.add_argument("carpeta")
+    opciones_guardar(gd)
+    gd.add_argument("--solo-aceptadas", metavar="REPORTE_CSV",
+                    help="guarda solo las fotos ACEPTADAS en ese reporte de QA")
+    gd.add_argument("--recursivo", action="store_true")
+    gd.add_argument("--hilos", type=int, default=8)
+    gd.set_defaults(fn=cmd_guardar)
+
+    s = sub.add_parser("subir", help="alias en desuso de guardar")
     s.add_argument("carpeta")
-    opciones_subir(s)
+    opciones_guardar(s)
     s.add_argument("--solo-aceptadas", metavar="REPORTE_CSV",
-                   help="sube solo las fotos ACEPTADAS en ese reporte de QA")
+                   help="guarda solo las fotos ACEPTADAS en ese reporte de QA")
     s.add_argument("--recursivo", action="store_true")
     s.add_argument("--hilos", type=int, default=8)
     s.set_defaults(fn=cmd_subir)
 
-    fl = sub.add_parser("flujo", help="QA y luego sube solo las aceptadas")
+    fl = sub.add_parser("flujo", help="QA y luego guarda solo las aceptadas")
     opciones_qa(fl)
-    opciones_subir(fl)
+    opciones_guardar(fl)
     fl.set_defaults(fn=cmd_flujo)
 
     dm = sub.add_parser("demo", help="genera cultivo, fotos con GPS, corre QA y abre el mapa con el dron")

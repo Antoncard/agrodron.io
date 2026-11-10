@@ -270,118 +270,145 @@ class Cobertura(unittest.TestCase):
             self.assertIn("CUMPLE", salida)
 
 
-class ClienteFalso:
-    def __init__(self, existentes=None, fallar=False, metadatos=None):
-        self.existentes, self.fallar, self.subidas = existentes or {}, fallar, []
-        self.metadatos = metadatos or {}
-        self.multiparte, self.cuerpos = [], {}
-
-    def head_object(self, Bucket, Key):
-        if Key in self.metadatos:
-            return {"ETag": '"otro-etag-1"', "Metadata": {"md5": self.metadatos[Key]}}
-        if Key not in self.existentes:
-            raise KeyError("404")
-        return {"ETag": f'"{self.existentes[Key]}"'}
-
-    def put_object(self, **kw):
-        if self.fallar:
-            raise ConnectionError("sin red")
-        self.subidas.append(kw["Key"])
-        if isinstance(kw["Body"], bytes):
-            self.cuerpos[kw["Key"]] = kw["Body"]
-
-    def upload_file(self, ruta, bucket, clave, ExtraArgs=None):
-        self.multiparte.append(clave)
-        self.subidas.append(clave)
-
-
-class Carga(unittest.TestCase):
-    def test_simulacion(self):
+class AlmacenLocal(unittest.TestCase):
+    def test_copia_correcta_con_md5(self):
         with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
-            res = ad.subir_lote(d, "finca1", "lote1", "2026-10-22")
-            self.assertEqual(res[0]["estado"], "SIMULADO")
-            self.assertEqual(res[0]["clave"], "raw/finca1/lote1/2026-10-22/a.jpg")
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            ruta_a = os.path.join(origen, "a.jpg")
+            foto(ruta_a)
+            md5_esp = ad.md5_archivo(ruta_a).hex()
+
+            res = ad.copiar_lote(origen, destino, "finca1", "lote1", "2026-10-22")
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["archivo"], "a.jpg")
+            self.assertEqual(res[0]["estado"], "COPIADO")
+            self.assertEqual(res[0]["md5"], md5_esp)
+            self.assertGreater(res[0]["bytes"], ad.TAMANO_MINIMO)
+            copia = os.path.join(destino, "raw", "finca1", "lote1", "2026-10-22", "a.jpg")
+            self.assertTrue(os.path.isfile(copia))
+            self.assertEqual(ad.md5_archivo(copia).hex(), md5_esp)
+
+    def test_segunda_corrida_da_ya_existe(self):
+        with tempfile.TemporaryDirectory() as d:
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            foto(os.path.join(origen, "a.jpg"))
+
+            res1 = ad.copiar_lote(origen, destino, "finca1", "lote1", "2026-10-22")
+            res2 = ad.copiar_lote(origen, destino, "finca1", "lote1", "2026-10-22")
+            self.assertEqual(res1[0]["estado"], "COPIADO")
+            self.assertEqual(res2[0]["estado"], "YA_EXISTE")
+
+    def test_error_lectura_no_detiene_lote(self):
+        from src import almacen as alm
+        with tempfile.TemporaryDirectory() as d:
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            foto(os.path.join(origen, "a.jpg"))
+            foto(os.path.join(origen, "b.jpg"))
+
+            md5_real = alm.md5_archivo
+
+            def md5_con_fallo(ruta):
+                if ruta.endswith("a.jpg"):
+                    raise OSError("error de lectura en disco")
+                return md5_real(ruta)
+
+            with mock.patch.object(alm, "md5_archivo", side_effect=md5_con_fallo):
+                res = ad.copiar_lote(origen, destino, "f", "l", "2026-10-22")
+
+            estados = {r["archivo"]: r["estado"] for r in res}
+            self.assertEqual(estados, {"a.jpg": "ERROR", "b.jpg": "COPIADO"})
+
+    def test_estados_no_existe_y_muy_pequena(self):
+        with tempfile.TemporaryDirectory() as d:
+            r_no = ad.copiar_imagen(os.path.join(d, "no.jpg"), d, "f", "l", "2026-10-22")
+            self.assertEqual(r_no["estado"], "NO_EXISTE")
+            peq = os.path.join(d, "peq.jpg")
+            with open(peq, "wb") as f:
+                f.write(b"123")
+            r_peq = ad.copiar_imagen(peq, d, "f", "l", "2026-10-22")
+            self.assertEqual(r_peq["estado"], "MUY_PEQUENA")
 
     def test_destino_invalido(self):
         with self.assertRaises(ValueError):
-            ad.subir_lote(".", "finca/../x", "lote1", "2026-10-22")
+            ad.copiar_lote(".", "almacen", "finca/../x", "lote1", "2026-10-22")
         with self.assertRaises(ValueError):
-            ad.subir_lote(".", "finca1", "lote1", "22/10/2026")
+            ad.copiar_lote(".", "almacen", "finca1", "lote1", "22/10/2026")
 
     def test_carpeta_inexistente(self):
         with self.assertRaises(FileNotFoundError):
-            ad.subir_lote("/no/existe", "finca1", "lote1", "2026-10-22")
+            ad.copiar_lote("/no/existe", "almacen", "finca1", "lote1", "2026-10-22")
 
     def test_solo_aceptadas(self):
         with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "ok.jpg"))
-            foto(os.path.join(d, "borrosa.jpg"), nitida=False)
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            foto(os.path.join(origen, "ok.jpg"))
+            foto(os.path.join(origen, "borrosa.jpg"), nitida=False)
             reporte = os.path.join(d, "qa.csv")
-            ad.auditar_lote(d, reporte)
-            res = ad.subir_lote(d, "finca1", "lote1", "2026-10-22",
-                                solo=ad.leer_aceptadas(reporte))
+            ad.auditar_lote(origen, reporte)
+            res = ad.copiar_lote(origen, destino, "finca1", "lote1", "2026-10-22",
+                                 solo=ad.leer_aceptadas(reporte))
             self.assertEqual([r["archivo"] for r in res], ["ok.jpg"])
 
-    def test_real_con_cliente_falso(self):
+    def test_manifiesto_y_guardado(self):
         with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
-            foto(os.path.join(d, "b.jpg"), nitida=False)
-            md5_a = ad.md5_archivo(os.path.join(d, "a.jpg")).hex()
-            cliente = ClienteFalso({"raw/f/l/2026-10-22/a.jpg": md5_a})
-            res = ad.subir_lote(d, "f", "l", "2026-10-22", dry_run=False, cliente=cliente)
-            self.assertEqual(ad.contar_estados(res), {"YA_EXISTE": 1, "SUBIDO": 1})
-            self.assertEqual(cliente.subidas, ["raw/f/l/2026-10-22/b.jpg"])
-
-    def test_error_no_detiene_lote(self):
-        with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
-            foto(os.path.join(d, "b.jpg"))
-            res = ad.subir_lote(d, "f", "l", "2026-10-22", dry_run=False,
-                                cliente=ClienteFalso(fallar=True))
-            self.assertEqual(ad.contar_estados(res), {"ERROR": 2})
-            self.assertIn("sin red", res[0]["error"])
-
-    def test_multiparte(self):
-        with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
-            cliente = ClienteFalso()
-            with mock.patch.object(ad, "UMBRAL_MULTIPARTE", 1):
-                res = ad.subir_lote(d, "f", "l", "2026-10-22", dry_run=False, cliente=cliente)
-            self.assertEqual(res[0]["estado"], "SUBIDO")
-            self.assertTrue(res[0]["multiparte"])
-            self.assertEqual(cliente.multiparte, ["raw/f/l/2026-10-22/a.jpg"])
-
-    def test_ya_existe_por_metadatos(self):
-        # En multiparte el ETag no es el MD5; se usa el MD5 guardado en Metadata
-        with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
-            md5 = ad.md5_archivo(os.path.join(d, "a.jpg")).hex()
-            cliente = ClienteFalso(metadatos={"raw/f/l/2026-10-22/a.jpg": md5})
-            res = ad.subir_lote(d, "f", "l", "2026-10-22", dry_run=False, cliente=cliente)
-            self.assertEqual(res[0]["estado"], "YA_EXISTE")
-
-    def test_manifiesto(self):
-        with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
-            res = ad.subir_lote(d, "f", "l", "2026-10-22")
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            foto(os.path.join(origen, "a.jpg"))
+            res = ad.copiar_lote(origen, destino, "f", "l", "2026-10-22")
             m = ad.crear_manifiesto(res, "f", "l", "2026-10-22")
-            self.assertEqual(m["totales"], {"SIMULADO": 1})
-            self.assertEqual(m["archivos"][0]["clave"], "raw/f/l/2026-10-22/a.jpg")
-            cliente = ClienteFalso()
-            clave = ad.subir_manifiesto(cliente, m)
-            self.assertEqual(clave, "raw/f/l/2026-10-22/manifiesto.json")
-            self.assertEqual(json.loads(cliente.cuerpos[clave])["lote"], "l")
+            self.assertEqual(m["totales"], {"COPIADO": 1})
+            self.assertEqual(m["ruta_lote"], "raw/f/l/2026-10-22/")
+            ruta_m = os.path.join(d, "manifiesto.json")
+            ad.guardar_manifiesto(ruta_m, m)
+            with open(ruta_m, encoding="utf-8") as f:
+                leido = json.load(f)
+            self.assertEqual(leido["lote"], "l")
+            self.assertEqual(leido["archivos"][0]["archivo"], "a.jpg")
 
-    def test_cli_manifiesto_local(self):
+    def test_cli_guardar_y_alias_subir(self):
         with tempfile.TemporaryDirectory() as d:
-            foto(os.path.join(d, "a.jpg"))
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            foto(os.path.join(origen, "a.jpg"))
             salida = os.path.join(d, "m.json")
-            codigo, _ = ejecutar("subir", d, "--finca", "f", "--lote", "l",
-                                 "--fecha", "2026-10-22", "--manifiesto", salida)
+            codigo, _ = ejecutar("guardar", origen, "--destino", destino, "--finca", "f",
+                                 "--lote", "l", "--fecha", "2026-10-22", "--manifiesto", salida)
             self.assertEqual(codigo, 0)
             with open(salida, encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["totales"], {"SIMULADO": 1})
+                self.assertEqual(json.load(f)["totales"], {"COPIADO": 1})
+
+            codigo2, texto2 = ejecutar("subir", origen, "--destino", destino, "--finca", "f",
+                                       "--lote", "l", "--fecha", "2026-10-22")
+            self.assertEqual(codigo2, 0)
+            self.assertIn("desuso", texto2)
+
+    def test_cli_flujo(self):
+        with tempfile.TemporaryDirectory() as d:
+            origen = os.path.join(d, "origen")
+            destino = os.path.join(d, "almacen")
+            os.mkdir(origen)
+            foto(os.path.join(origen, "ok.jpg"))
+            foto(os.path.join(origen, "borrosa.jpg"), nitida=False)
+            rep = os.path.join(d, "qa.csv")
+            man = os.path.join(d, "m.json")
+            codigo, _ = ejecutar("flujo", origen, "--reporte", rep, "--destino", destino,
+                                 "--finca", "f", "--lote", "l", "--fecha", "2026-10-22",
+                                 "--manifiesto", man)
+            self.assertEqual(codigo, 0)
+            with open(man, encoding="utf-8") as f:
+                datos = json.load(f)
+            self.assertEqual(len(datos["archivos"]), 1)
+            self.assertEqual(datos["archivos"][0]["archivo"], "ok.jpg")
 
 
 class SimulacionDemo(unittest.TestCase):

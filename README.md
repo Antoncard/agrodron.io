@@ -10,7 +10,8 @@ Universidad de Caldas · Ingeniería de Sistemas y Computación · Vereda La Cab
 ```text
 agrodron.io/
 ├── src/
-│   ├── core.py            # Plan de vuelo, calibración, QA óptico, cobertura GPS y carga S3
+│   ├── almacen.py         # Almacenamiento local de lotes con verificación MD5 y manifiesto
+│   ├── core.py            # Plan de vuelo, calibración, QA óptico, cobertura GPS y CLI
 │   ├── simulator.py       # Simulador rural (Vereda La Cabaña), fotos EXIF GPS y ortomosaico
 │   └── ui_template.py     # Estación web editorial-técnica + Walkthrough CSS (960×620)
 ├── tests/

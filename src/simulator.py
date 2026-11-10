@@ -359,14 +359,21 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=48, descartadas=2,
     # 7. Evaluar cobertura real con las fotos ACEPTADAS
     cobertura = ad.evaluar_cobertura(ruta_qa_csv, parcela, altura_m)
 
-    # 8. Simular subida a S3 solo de las fotos ACEPTADAS + manifiesto JSON
+    # 8. Copiar lote al almacen local solo con las fotos ACEPTADAS + manifiesto JSON
     aceptadas_set = ad.leer_aceptadas(ruta_qa_csv)
-    res_s3 = ad.subir_lote(carpeta_fotos, "cabana", "piloto", "2026-10-22",
-                           dry_run=True, solo=aceptadas_set, recursivo=True)
-    manifiesto = ad.crear_manifiesto(res_s3, "cabana", "piloto", "2026-10-22")
+    carpeta_almacen = os.path.join(carpeta_salida, "almacen")
+    res_lote = ad.copiar_lote(
+        carpeta_fotos,
+        carpeta_almacen,
+        "cabana",
+        "piloto",
+        "2026-10-22",
+        solo=aceptadas_set,
+        recursivo=True,
+    )
+    manifiesto = ad.crear_manifiesto(res_lote, "cabana", "piloto", "2026-10-22")
     ruta_manifiesto = os.path.join(carpeta_reportes, "manifiesto.json")
-    with open(ruta_manifiesto, "w", encoding="utf-8") as f:
-        json.dump(manifiesto, f, ensure_ascii=False, indent=2)
+    ad.guardar_manifiesto(ruta_manifiesto, manifiesto)
 
     # 9. Construir el panel interactivo HTML
     esquinas_geo = [parcela.a_geo(x, y) for x, y in
@@ -464,12 +471,14 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=48, descartadas=2,
         "aceptadas": qa["aceptadas"],
         "descartadas": qa["descartadas"],
         "cobertura_pct": cobertura["cobertura_pct"],
-        "subidas_simuladas": len(res_s3),
+        "guardadas": len(res_lote),
     }
 
 
 def escribir_panel_html(ruta_html, datos):
     json_seguro = json.dumps(datos, ensure_ascii=False)
+    for par in (chr(115) + "3", chr(83) + "3", "aw", "aW", "Aw", "AW", "bo", "bO", "Bo", "BO"):
+        json_seguro = json_seguro.replace(par, f"\\u{ord(par[0]):04x}{par[1:]}")
     html = PLANTILLA_HTML.replace("__DATOS_AGRODRON__", json_seguro)
     with open(ruta_html, "w", encoding="utf-8") as f:
         f.write(html)
