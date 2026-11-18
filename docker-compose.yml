@@ -1,0 +1,53 @@
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agrodron}
+      MYSQL_USER: ${MYSQL_USER:-agrodron}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-agrodron_pass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-agrodron}:${MYSQL_PASSWORD:-agrodron_pass}@db:3306/${MYSQL_DATABASE:-agrodron}
+      AGRODRON_API_KEY: ${AGRODRON_API_KEY:-agrodron-dev-key-2026}
+      AGRODRON_STORAGE_DIR: /app/almacen
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./almacen:/app/almacen
+      - ./modelos:/app/modelos
+      - ./output:/app/output
+    command: >
+      sh -c "alembic upgrade head && python -m src.cli db-init && uvicorn src.api.app:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-agrodron}:${MYSQL_PASSWORD:-agrodron_pass}@db:3306/${MYSQL_DATABASE:-agrodron}
+      AGRODRON_STORAGE_DIR: /app/almacen
+    volumes:
+      - ./almacen:/app/almacen
+      - ./modelos:/app/modelos
+      - ./output:/app/output
+    command: ["python", "-m", "src.worker.servicio", "--intervalo", "5"]
+
+volumes:
+  mysql_data:

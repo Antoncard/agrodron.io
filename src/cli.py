@@ -177,6 +177,77 @@ def cmd_demo(args):
     return 0
 
 
+def cmd_db_init(args):
+    from alembic import command as alembic_cmd
+    from alembic.config import Config
+    from src.db.config import obtener_configuracion
+    from src.db.session import create_session_factory
+    from src.servicios.seed import sembrar_piloto
+
+    cfg_env = obtener_configuracion()
+    alembic_cfg = Config("alembic.ini")
+    if args.url:
+        alembic_cfg.set_main_option("sqlalchemy.url", args.url)
+    alembic_cmd.upgrade(alembic_cfg, "head")
+    sf, _ = create_session_factory(args.url or cfg_env.database_url)
+    with sf() as session:
+        res = sembrar_piloto(
+            session,
+            modelos_dir=cfg_env.modelos_dir,
+            reportes_dir=cfg_env.reportes_dir,
+            ejecutar_ia_real=not args.rapido,
+        )
+    imprimir(res, getattr(args, "json", False))
+    return 0
+
+
+def cmd_importar(args):
+    from src.db.config import obtener_configuracion
+    from src.db.session import create_session_factory
+    from src.servicios.importador import importar_ground_truth_csv, importar_lote_vuelo, registrar_vuelo
+
+    sf, _ = create_session_factory(obtener_configuracion().database_url)
+    with sf() as session:
+        vuelo = registrar_vuelo(
+            session,
+            parcela_id=args.parcela_id,
+            fecha=args.fecha,
+            altura_m=args.altura,
+            satelites=args.satelites,
+            hdop=args.hdop,
+            obturacion=args.obturacion,
+        )
+        n_imgs = 0
+        if args.qa_csv:
+            n_imgs = importar_lote_vuelo(session, vuelo.id, args.qa_csv, args.manifiesto, args.carpeta_fotos)
+        if args.conteo_csv:
+            importar_ground_truth_csv(session, args.parcela_id, args.conteo_csv, fecha=args.fecha)
+    print(f"Importado vuelo id={vuelo.id} estado={vuelo.estado} imagenes={n_imgs}")
+    return 0
+
+
+def cmd_api(args):
+    import uvicorn
+    uvicorn.run("src.api.app:app", host=args.host, port=args.port, reload=args.reload)
+    return 0
+
+
+def cmd_worker(args):
+    from src.worker.servicio import ejecutar_bucle_worker
+    ejecutar_bucle_worker(args.intervalo, args.una_vez, args.carpeta_raw, args.parcela_id)
+    return 0
+
+
+def cmd_entrenar(args):
+    from ml_training.preparar_dataset import preparar_dataset
+    from ml_training.entrenar import entrenar
+    if not args.solo_entrenar:
+        preparar_dataset(args.dataset)
+    res = entrenar(args.config, args.dataset, args.version, args.backend, args.modelos_dir)
+    imprimir(res, True)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="AgroDron CLI")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -278,6 +349,47 @@ def main(argv=None):
     dm.add_argument("--rumbo", type=float, default=RUMBO_VIENTO_NE)
     dm.add_argument("--no-abrir", action="store_true")
     dm.set_defaults(fn=cmd_demo)
+
+    dbi = sub.add_parser("db-init", help="aplica migraciones Alembic y siembra el piloto en BD")
+    dbi.add_argument("--url", default=None)
+    dbi.add_argument("--rapido", action="store_true")
+    dbi.add_argument("--json", action="store_true")
+    dbi.set_defaults(fn=cmd_db_init)
+
+    imp = sub.add_parser("importar", help="importa QA, manifiesto y ground truth CSV a la BD")
+    imp.add_argument("--parcela-id", type=int, default=1)
+    imp.add_argument("--fecha", required=True)
+    imp.add_argument("--altura", type=float, default=25.0)
+    imp.add_argument("--satelites", type=int, default=18)
+    imp.add_argument("--hdop", type=float, default=0.68)
+    imp.add_argument("--obturacion", default="1/1000")
+    imp.add_argument("--qa-csv", default=None)
+    imp.add_argument("--manifiesto", default=None)
+    imp.add_argument("--carpeta-fotos", default=None)
+    imp.add_argument("--conteo-csv", default=None)
+    imp.set_defaults(fn=cmd_importar)
+
+    ap_cmd = sub.add_parser("api", help="inicia servidor REST FastAPI (/api/v1)")
+    ap_cmd.add_argument("--host", default="127.0.0.1")
+    ap_cmd.add_argument("--port", type=int, default=8000)
+    ap_cmd.add_argument("--reload", action="store_true")
+    ap_cmd.set_defaults(fn=cmd_api)
+
+    wk = sub.add_parser("worker", help="ejecuta servicio de eventos e inferencia IA")
+    wk.add_argument("--intervalo", type=float, default=5.0)
+    wk.add_argument("--una-vez", action="store_true")
+    wk.add_argument("--carpeta-raw", default=None)
+    wk.add_argument("--parcela-id", type=int, default=1)
+    wk.set_defaults(fn=cmd_worker)
+
+    tr = sub.add_parser("entrenar", help="prepara dataset YOLO y entrena detector")
+    tr.add_argument("--config", default="ml_training/config_yolo.yaml")
+    tr.add_argument("--dataset", default="dataset/v1")
+    tr.add_argument("--version", default="v1.0.0")
+    tr.add_argument("--backend", choices=("cv", "yolo"), default="cv")
+    tr.add_argument("--modelos-dir", default="modelos")
+    tr.add_argument("--solo-entrenar", action="store_true")
+    tr.set_defaults(fn=cmd_entrenar)
 
     args = ap.parse_args(argv)
     try:

@@ -9,6 +9,17 @@ build/
 dist/
 .pytest_cache/
 
+# Bases de datos, configuracion local y respaldos
+*.db
+*.sqlite3
+.env
+backups/
+
+# Datasets y pesos binarios pesados
+dataset/
+modelos/*.pt
+modelos/*.onnx
+
 # Salidas autogeneradas por el simulador / CLI / almacen local
 output/
 demo_salida/

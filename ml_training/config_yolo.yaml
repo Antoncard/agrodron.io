@@ -1,0 +1,24 @@
+# Hiperparametros reproducibles para entrenamiento AgroDron (IA-07, IA-08, IA-09)
+version: "v1.0.0"
+dataset_version: "v1.0"
+seed: 42
+model: "yolov8n.pt"
+imgsz: 640
+tile_overlap: 0.20
+epochs: 50
+batch: 16
+conf: 0.25
+iou_nms: 0.45
+classes:
+  0: planta
+  1: maleza
+
+# Aumentos permitidos (GSD fijo en 0.938 cm/px -> scale estrictamente 0.0, IA-09)
+augment:
+  degrees: 90.0
+  flipud: 0.5
+  fliplr: 0.5
+  hsv_v: 0.2
+  hsv_s: 0.2
+  scale: 0.0
+  mosaic: 0.0

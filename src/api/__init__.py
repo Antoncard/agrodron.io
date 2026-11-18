@@ -1,0 +1,4 @@
+# Paquete FastAPI de AgroDron
+from src.api.app import app, crear_app
+
+__all__ = ["app", "crear_app"]

@@ -9,11 +9,19 @@ description = "Conteo de plantas por hectarea con fotos de dron (Universidad de 
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy==2.2.6",
-    "opencv-python-headless==4.11.0.86",
-    "Pillow==11.2.1",
+    "numpy>=2.2.0",
+    "opencv-python-headless>=4.11.0",
+    "Pillow>=11.0.0",
+    "SQLAlchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "PyMySQL>=1.1.1",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "httpx>=0.28.0",
+    "reportlab>=4.2.5",
+    "pydantic-settings>=2.6.0",
+    "PyYAML>=6.0.2",
 ]
 
 [project.scripts]
 agrodron = "src.cli:main"
-

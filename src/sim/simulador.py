@@ -1,6 +1,7 @@
 # Simulador rural de cultivo, vuelo, fotos EXIF GPS, ortomosaico y panel web (< 300 lineas)
 from concurrent.futures import ThreadPoolExecutor
 import csv
+import json
 import os
 import re
 import shutil
@@ -13,11 +14,13 @@ from PIL import Image
 from src.almacen import copiar_lote, crear_manifiesto, guardar_manifiesto
 from src.dominio.conteo_referencia import CONTEO_DOCUMENTO, leer_planilla_conteo
 from src.dominio.parcela import (
-    Parcela, calcular_cobertura, cuadrante_local, escribir_kml, escribir_waypoints_csv, evaluar_cobertura, generar_ruta, posiciones_disparo,
+    Parcela, asignar_cuadrante, calcular_cobertura, cuadrante_local, escribir_kml, escribir_waypoints_csv, evaluar_cobertura, generar_ruta, posiciones_disparo,
 )
 from src.dominio.plan_vuelo import calcular_plan_vuelo, huella, leer_obturacion, validar_calibracion
 from src.dominio.qa_fotos import GPS_TAG, RESOLUCION, auditar_lote, leer_aceptadas
-from src.ml.evaluacion import ejecutar_conteo_simulado
+from src.ml.evaluacion import ejecutar_conteo_simulado, evaluar_conteo_ia
+from src.ml.pipeline_vuelo import ejecutar_conteo_imagenes, evaluar_sensibilidad_gps
+from src.servicios.reportes import calcular_huecos_resiembra, calcular_mapa_densidad
 from src.web.plantilla import escribir_panel_html
 
 LAT_CABANA = 5.0949
@@ -83,7 +86,17 @@ def generar_plantas_parcela(parcela, semilla=42):
     return plantas
 
 
-def renderizar_lienzo_terreno(parcela, plantas, px_por_m=10, semilla=7):
+def generar_malezas_parcela(parcela, cantidad=180, semilla=99):
+    rng = np.random.default_rng(semilla)
+    malezas = []
+    for _ in range(cantidad):
+        x = float(rng.uniform(1.0, parcela.ancho_m - 1.0))
+        y = float(rng.uniform(1.0, parcela.largo_m - 1.0))
+        malezas.append({"x": round(x, 2), "y": round(y, 2), "radio_m": round(float(rng.uniform(0.14, 0.24)), 2)})
+    return malezas
+
+
+def renderizar_lienzo_terreno(parcela, plantas, px_por_m=10, semilla=7, malezas=None):
     rng = np.random.default_rng(semilla)
     w_l, h_l = int(parcela.ancho_m * px_por_m), int(parcela.largo_m * px_por_m)
     yy, xx = np.mgrid[0:h_l, 0:w_l].astype(np.float32)
@@ -94,10 +107,14 @@ def renderizar_lienzo_terreno(parcela, plantas, px_por_m=10, semilla=7):
     base[:, :, 1] = (68 + onda * 0.8).astype(np.int16)
     base[:, :, 2] = (82 + onda * 0.6).astype(np.int16)
     lienzo = np.clip(base + ruido, 18, 235).astype(np.uint8)
-    borde = max(4, int(1.2 * px_por_m))
-    cv2.rectangle(lienzo, (0, 0), (w_l - 1, h_l - 1), (42, 108, 62), borde * 2)
+    borde = max(2, int(0.6 * px_por_m))
+    cv2.rectangle(lienzo, (0, 0), (w_l - 1, h_l - 1), (42, 58, 70), borde * 2)
     for col in range(borde, w_l - borde, max(3, int(2.0 * px_por_m))):
         cv2.line(lienzo, (col, borde), (col, h_l - borde), (30, 50, 62), 2)
+    for m in malezas or ():
+        mx, my = int(m["x"] * px_por_m), int((parcela.largo_m - m["y"]) * px_por_m)
+        mr = max(2, int(m["radio_m"] * px_por_m))
+        cv2.ellipse(lienzo, (mx, my), (mr + 1, max(1, mr // 2)), int((mx + my) % 180), 0, 360, (55, 130, 125), -1)
     for p in plantas:
         cx, cy = int(p["x"] * px_por_m), int((parcela.largo_m - p["y"]) * px_por_m)
         r = max(3, int(p["radio_m"] * px_por_m))
@@ -114,7 +131,7 @@ def recortar_vista_dron(lienzo, parcela, x_m, y_m, huella_w, huella_h, px_por_m=
     w_px, h_px = int(huella_w * px_por_m), int(huella_h * px_por_m)
     cx, cy = int(x_m * px_por_m), int((parcela.largo_m - y_m) * px_por_m)
     pad = max(w_px, h_px)
-    exp = cv2.copyMakeBorder(lienzo, pad, pad, pad, pad, cv2.BORDER_REFLECT_101)
+    exp = cv2.copyMakeBorder(lienzo, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(38, 64, 78))
     x0, y0 = cx + pad - w_px // 2, cy + pad - h_px // 2
     vista = cv2.resize(exp[y0:y0 + h_px, x0:x0 + w_px], resolucion, interpolation=cv2.INTER_LINEAR)
     if borrosa:
@@ -152,7 +169,15 @@ def seleccionar_disparos_demo(disparos, cantidad):
     return elegidos
 
 
-def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8, altura_m=25.0, lat=LAT_CABANA, lon=LON_CABANA, rumbo=RUMBO_VIENTO_NE, abrir_navegador=True):
+def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8, altura_m=25.0, lat=LAT_CABANA, lon=LON_CABANA, rumbo=RUMBO_VIENTO_NE, abrir_navegador=True, bitacora=None):
+    bit = dict(bitacora or {})
+    fecha_vuelo = str(bit.get("fecha", "2026-10-22"))
+    satelites = int(bit.get("satelites", 18))
+    obturacion_txt = str(bit.get("obturacion", "1/1000"))
+    hdop = float(bit.get("hdop", 0.68))
+    finca_slug = str(bit.get("finca", "cabana"))
+    lote_slug = str(bit.get("lote", "piloto"))
+
     c_fotos, c_rep, c_rutas, c_web = (os.path.join(carpeta_salida, s) for s in ("fotos_sd", "reportes", "rutas", "web"))
     c_assets = os.path.join(c_web, "assets")
     for c in (c_fotos, c_rep, c_rutas, c_web, c_assets):
@@ -165,7 +190,7 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8
                 os.remove(os.path.join(sub_q, viejo))
 
     parcela = Parcela(lat, lon, 100.0, 100.0, rumbo)
-    fallos_cal, adv_cal = validar_calibracion(18, leer_obturacion("1/1000"), 0.68)
+    fallos_cal, adv_cal = validar_calibracion(satelites, leer_obturacion(obturacion_txt), hdop)
     plan_25 = calcular_plan_vuelo(100.0, 100.0, altura_m=altura_m)
     plan_30 = calcular_plan_vuelo(100.0, 100.0, altura_m=30.0)
     n_objetivo = plan_25["total_fotos"] if total_fotos is None else int(total_fotos)
@@ -184,7 +209,7 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8
         w.writerows(CONTEO_DOCUMENTO)
     conteo = leer_planilla_conteo(ruta_conteo_csv)
 
-    lienzo = renderizar_lienzo_terreno(parcela, plantas)
+    lienzo = renderizar_lienzo_terreno(parcela, plantas, malezas=generar_malezas_parcela(parcela))
     ruta_orto = os.path.join(c_web, "ortomosaico.jpg")
     guardar_ortomosaico(lienzo, parcela, ruta_orto)
     shutil.copy2(ruta_orto, os.path.join(c_assets, "ortomosaico.jpg"))
@@ -199,7 +224,7 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8
     def _generar_una(item):
         idx, disp = item
         f_lat, f_lon = parcela.a_geo(disp["x"], disp["y"])
-        q = cuadrante_local(parcela, disp["x"], disp["y"])
+        q = asignar_cuadrante(parcela, f_lat, f_lon)
         q = q if q in ("Q1", "Q2", "Q3", "Q4") else "Q1"
         nombre = f"IMG_{disp['n']:04d}.jpg"
         rel = f"{q}/{nombre}"
@@ -229,11 +254,48 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8
 
     cobertura = evaluar_cobertura(ruta_qa_csv, parcela, altura_m)
     cobertura_30_pct = calcular_cobertura(parcela, [parcela.a_geo(d["x"], d["y"]) for d in posiciones_disparo(parcela, 30.0)], 30.0)
-    res_lote = copiar_lote(c_fotos, os.path.join(carpeta_salida, "almacen"), "cabana", "piloto", "2026-10-22", solo=leer_aceptadas(ruta_qa_csv), recursivo=True)
-    manifiesto = crear_manifiesto(res_lote, "cabana", "piloto", "2026-10-22")
+    res_lote = copiar_lote(c_fotos, os.path.join(carpeta_salida, "almacen"), finca_slug, lote_slug, fecha_vuelo, solo=leer_aceptadas(ruta_qa_csv), recursivo=True)
+    manifiesto = crear_manifiesto(res_lote, finca_slug, lote_slug, fecha_vuelo)
     ruta_manifiesto = os.path.join(c_rep, "manifiesto.json")
     guardar_manifiesto(ruta_manifiesto, manifiesto)
-    conteo_ia = ejecutar_conteo_simulado(parcela, plantas, todos_disparos, altura_m=altura_m)
+
+    ruta_pesos = os.path.join("modelos", "v1.0.0", "pesos.json")
+    ruta_metricas = os.path.join("modelos", "v1.0.0", "metricas.json")
+    modelo_info = None
+    if os.path.isfile(ruta_metricas):
+        with open(ruta_metricas, encoding="utf-8") as fm:
+            m_data = json.load(fm)
+        modelo_info = {
+            "nombre": "AgroDron-CV",
+            "version": m_data.get("version", "v1.0.0"),
+            "arquitectura": m_data.get("arquitectura", "AgroDron-CV-ExG-Morphology-v1"),
+            "sha256": m_data.get("sha256", "")[:16],
+            "prueba_ciega": m_data.get("prueba_ciega", {}),
+        }
+
+    if not es_muestra and os.path.isfile(ruta_pesos):
+        from src.ml.detector_cv import DetectorVisionCV
+        det_cv = DetectorVisionCV(ruta_pesos=ruta_pesos)
+        conteo_ia = ejecutar_conteo_imagenes(parcela, fotos_meta, det_cv, carpeta_base=c_fotos, altura_m=altura_m)
+        pts_xy = [(p[0], p[1]) for p in conteo_ia.pop("detecciones_terreno", [])]
+        sens_gps = conteo_ia.pop("sensibilidad_gps", [])
+    else:
+        conteo_ia = ejecutar_conteo_simulado(parcela, plantas, todos_disparos, altura_m=altura_m)
+        pts_xy = [(p["x"], p["y"]) for p in plantas if p.get("viva", True)]
+        sens_gps = []
+
+    densidad_10x10 = calcular_mapa_densidad(pts_xy, parcela, plantas_esperadas=conteo["esperadas"])
+    huecos = calcular_huecos_resiembra(pts_xy, parcela)
+    historico_vuelos = [
+        {"fecha": "2026-10-15", "altura_m": 30.0, "gsd_cm_px": plan_30["gsd_cm_px"], "estado": "RECHAZADO_GSD", "detectadas": 2203, "deficit": 297, "deficit_pct": 11.88},
+        {"fecha": fecha_vuelo, "altura_m": float(altura_m), "gsd_cm_px": plan_25["gsd_cm_px"], "estado": "APROBADO", "detectadas": conteo_ia["detectadas"], "deficit": conteo["esperadas"] - conteo_ia["detectadas"], "deficit_pct": round((conteo["esperadas"] - conteo_ia["detectadas"]) * 100.0 / conteo["esperadas"], 2)},
+    ]
+    manifiesto_panel = {
+        "ruta_lote": manifiesto["ruta_lote"],
+        "totales": manifiesto["totales"],
+        "bytes_totales": manifiesto["bytes_totales"],
+        "total_archivos": len(manifiesto["archivos"]),
+    }
 
     def _poly(x0, y0, x1, y1):
         return [[round(a, 7), round(b, 7)] for a, b in (parcela.a_geo(x0, y0), parcela.a_geo(x1, y0), parcela.a_geo(x1, y1), parcela.a_geo(x0, y1))]
@@ -250,10 +312,12 @@ def ejecutar_simulacion(carpeta_salida="output", total_fotos=None, descartadas=8
             "ancho_m": parcela.ancho_m, "largo_m": parcela.largo_m, "centro": [round(x, 7) for x in parcela.a_geo(50, 50)],
             "esquinas": _poly(0, 0, 100, 100), "cuadrantes_geo": cuadrantes_geo, "huella_m": [round(huella_w, 2), round(huella_h, 2)],
         },
-        "calibracion": {"satelites": 18, "obturacion": "1/1000 s", "hdop": 0.68, "cumple": len(fallos_cal) == 0, "advertencias": adv_cal},
+        "calibracion": {"fecha": fecha_vuelo, "satelites": satelites, "obturacion": f"{obturacion_txt} s", "hdop": hdop, "cumple": len(fallos_cal) == 0, "advertencias": adv_cal},
         "plan_25": plan_25, "plan_30": plan_30, "cobertura_30_pct": cobertura_30_pct, "es_muestra": es_muestra,
         "waypoints": waypoints, "fotos": fotos_meta, "qa": qa, "cobertura": cobertura, "conteo": conteo,
-        "conteo_ia": conteo_ia, "manifiesto": manifiesto, "ortomosaico_src": "assets/ortomosaico.jpg",
+        "conteo_ia": conteo_ia, "modelo_ia": modelo_info, "sensibilidad_gps": sens_gps,
+        "densidad_10x10": densidad_10x10, "huecos_resiembra": huecos, "historico_vuelos": historico_vuelos,
+        "manifiesto": manifiesto_panel, "ortomosaico_src": "assets/ortomosaico.jpg",
     }
     ruta_html = os.path.join(c_web, "panel_agrodron.html")
     escribir_panel_html(ruta_html, datos_panel)

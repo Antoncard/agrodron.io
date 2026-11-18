@@ -51,8 +51,8 @@ class Parcela:
         este = math.radians(lon - self.lon) * R_TIERRA * math.cos(math.radians(self.lat))
         return este * c - norte * s, este * s + norte * c
 
-    def contiene(self, x, y):
-        return 0 <= x <= self.ancho_m and 0 <= y <= self.largo_m
+    def contiene(self, x, y, tol=0.05):
+        return -tol <= x <= self.ancho_m + tol and -tol <= y <= self.largo_m + tol
 
 
 def cuadrante_local(parcela, x, y):
@@ -78,12 +78,14 @@ def asignar_cuadrante(parcela, lat, lon):
 
 
 def lineas_x(parcela, altura_m=25.0, solape_lateral=0.75, cam=CAMARA):
-    # Posicion x (m) de cada linea de vuelo, centradas en la parcela
+    # Posicion x (m) de cada linea de vuelo, distribuidas dentro de [0, ancho_m]
     huella_ancho, _ = huella(altura_m, cam)
     paso = huella_ancho * (1 - solape_lateral)
     lineas = math.ceil(parcela.ancho_m / paso) + 1
-    margen = (parcela.ancho_m - (lineas - 1) * paso) / 2
-    return [margen + i * paso for i in range(lineas)], paso
+    if lineas <= 1:
+        return [parcela.ancho_m / 2.0], parcela.ancho_m
+    sep = parcela.ancho_m / (lineas - 1)
+    return [i * sep for i in range(lineas)], sep
 
 
 def generar_ruta(parcela, altura_m=25.0, solape_lateral=0.75, cam=CAMARA):

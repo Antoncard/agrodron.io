@@ -1,0 +1,29 @@
+{
+  "version": "v1.0.0",
+  "dataset_version": "v1.0",
+  "arquitectura": "AgroDron-CV-ExG-Morphology-v1",
+  "fecha_entrenamiento": "2026-11-18T21:22:50+00:00",
+  "sha256": "5dfc199455b5116ee3cff4e440073de6f3b46b1f92c1705033e4ad2e7e63f91c",
+  "ruta_pesos": "modelos/v1.0.0/pesos.json",
+  "umbral_calibrado": 0.3,
+  "muestras_train": 1921,
+  "validacion": {
+    "tp": 412,
+    "fp": 1,
+    "fn": 39,
+    "precision": 0.9976,
+    "recall": 0.9135,
+    "f1": 0.9537,
+    "iou_umbral": 0.5
+  },
+  "prueba_ciega": {
+    "tp": 389,
+    "fp": 2,
+    "fn": 31,
+    "precision": 0.9949,
+    "recall": 0.9262,
+    "f1": 0.9593,
+    "iou_umbral": 0.5
+  },
+  "cumple_f1_minimo": true
+}
