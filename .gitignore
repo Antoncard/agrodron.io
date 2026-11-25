@@ -21,10 +21,10 @@ modelos/*.pt
 modelos/*.onnx
 
 # Salidas autogeneradas por el simulador / CLI / almacen local
-output/
-demo_salida/
-almacen/
-releases/
+/output/
+/demo_salida/
+/almacen/
+/releases/
 *.docx
 reporte_qa.csv
 ruta_vuelo.kml
