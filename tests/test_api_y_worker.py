@@ -166,6 +166,37 @@ class ApiYWorker(unittest.TestCase):
                 r3 = srv_ia.consultar_asistente("hola")
                 self.assertEqual(r3["proveedor"], "local-offline")
 
+    def test_bd_n5_sin_credenciales_hardcodeadas_y_cli_bitacora_demo(self):
+        # BD-N5: nunca almacenar credenciales de proveedores externos en el repositorio
+        for ruta in ("src/web/plantilla.py", "api/asistente.js", "public/index.html"):
+            if os.path.isfile(ruta):
+                with open(ruta, encoding="utf-8") as f:
+                    contenido = f.read()
+                self.assertNotIn("sk-or-v1-", contenido, f"Clave OpenRouter detectada en {ruta}")
+                self.assertNotIn("AQ.Ab8RN6", contenido, f"Clave Vertex detectada en {ruta}")
+
+        # Bitacora real configurable desde CLI demo (Sprint 3)
+        from src import cli
+        with tempfile.TemporaryDirectory() as d:
+            rc = cli.main([
+                "demo",
+                "--carpeta", d,
+                "--fotos", "4",
+                "--descartadas", "1",
+                "--fecha", "2026-11-24",
+                "--satelites", "20",
+                "--hdop", "0.55",
+                "--obturacion", "1/1250",
+                "--no-abrir",
+            ])
+            self.assertEqual(rc, 0)
+            panel = os.path.join(d, "web", "panel_agrodron.html")
+            with open(panel, encoding="utf-8") as f:
+                html = f.read()
+            self.assertIn('"fecha": "2026-11-24"', html)
+            self.assertIn('"satelites": 20', html)
+            self.assertIn('"hdop": 0.55', html)
+
 
 if __name__ == "__main__":
     unittest.main()

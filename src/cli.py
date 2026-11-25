@@ -164,9 +164,18 @@ def cmd_flujo(args):
 
 def cmd_demo(args):
     from src.sim import simulador as sim
+    bitacora = {}
+    if getattr(args, "bitacora", None):
+        with open(args.bitacora, encoding="utf-8") as f:
+            bitacora.update(json.load(f))
+    for campo in ("fecha", "satelites", "obturacion", "hdop", "finca", "lote"):
+        val = getattr(args, campo, None)
+        if val is not None:
+            bitacora[campo] = val
     res = sim.ejecutar_simulacion(
         carpeta_salida=args.carpeta, total_fotos=args.fotos, descartadas=args.descartadas,
-        altura_m=args.altura, lat=args.lat, lon=args.lon, rumbo=args.rumbo, abrir_navegador=not args.no_abrir,
+        altura_m=args.altura, lat=args.lat, lon=args.lon, rumbo=args.rumbo,
+        abrir_navegador=not args.no_abrir, bitacora=bitacora or None,
     )
     nota_muestra = " (muestra)" if res.get("es_muestra") else ""
     print(f"Simulacion completada en: {res['carpeta_salida']}")
@@ -347,6 +356,13 @@ def main(argv=None):
     dm.add_argument("--lat", type=float, default=LAT_CABANA)
     dm.add_argument("--lon", type=float, default=LON_CABANA)
     dm.add_argument("--rumbo", type=float, default=RUMBO_VIENTO_NE)
+    dm.add_argument("--fecha", default=None, help="fecha real de bitacora (AAAA-MM-DD)")
+    dm.add_argument("--satelites", type=int, default=None, help="satelites GNSS de bitacora (CA1)")
+    dm.add_argument("--obturacion", default=None, help="velocidad de obturacion de bitacora (ej. 1/1000)")
+    dm.add_argument("--hdop", type=float, default=None, help="HDOP de bitacora (CA1)")
+    dm.add_argument("--finca", default=None, help="slug de la finca")
+    dm.add_argument("--lote", default=None, help="slug del lote")
+    dm.add_argument("--bitacora", default=None, help="archivo JSON con datos reales de bitacora de vuelo")
     dm.add_argument("--no-abrir", action="store_true")
     dm.set_defaults(fn=cmd_demo)
 

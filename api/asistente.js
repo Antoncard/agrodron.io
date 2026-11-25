@@ -1,20 +1,17 @@
-// Vercel Serverless Function para AgroDron IA (con clave interna configurada)
-const _DEFAULT_VX = ["AQ.Ab8RN6", "Kw06iAQTq4Kg3dzg5n3T_", "lUoM8FjVdxfA7oVlbLG1HDw"].join("");
-const _DEFAULT_OR = ["sk-or-v1-", "97da4734cf7c9c81ccb0af02566b80f3", "7efbef3a7fa070c72c5853786dd8a37e"].join("");
-
+// Vercel Serverless Function para AgroDron IA (BD-N5: credenciales solo por variables de entorno)
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  const vxKey = process.env.VERTEX_API_KEY || _DEFAULT_VX;
-  const orKey = process.env.OPENROUTER_API_KEY || _DEFAULT_OR;
+  const vxKey = process.env.VERTEX_API_KEY || "";
+  const orKey = process.env.OPENROUTER_API_KEY || "";
 
   if (req.method === "GET") {
     return res.status(200).json({
       estado: "ok",
-      configurado: true,
+      configurado: Boolean(vxKey || orKey),
       proveedores: { vertex: Boolean(vxKey), openrouter: Boolean(orKey) },
     });
   }

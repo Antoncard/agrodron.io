@@ -24,6 +24,7 @@ agrodron.io/
 ├── alembic/                      # Migraciones de esquema SQLite / MySQL 8
 ├── docs/
 │   ├── GUION_PRUEBA_USUARIO.md   # Guion de prueba de usabilidad con agricultores (UI-04)
+│   ├── MANUAL_USUARIO.md         # Manual de usuario (agricultor y operador, Sprint 3)
 │   ├── PLAN_MEJORAS.md
 │   └── agrodron-vuelo-brief.md
 ├── ml_training/

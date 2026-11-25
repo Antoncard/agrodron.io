@@ -740,8 +740,6 @@ async function detectarBackend() {
 }
 detectarBackend();
 
-const _VK = ["AQ.Ab8RN6", "Kw06iAQTq4Kg3dzg5n3T_", "lUoM8FjVdxfA7oVlbLG1HDw"].join("");
-const _OK = ["sk-or-v1-", "97da4734cf7c9c81ccb0af02566b80f3", "7efbef3a7fa070c72c5853786dd8a37e"].join("");
 let aiAbierto = false, aiHist = [];
 function toggleAI(estado) {
   aiAbierto = estado !== undefined ? estado : !aiAbierto;
@@ -771,41 +769,6 @@ function construirPromptJS(vista) {
   const det = ia ? ia.detectadas : D.conteo.conteo;
   const def = esp - det;
   return `Eres AgroDron IA (Universidad de Caldas). Responde en español, conciso y claro (${vista === "agro" ? "lenguaje llano para agricultor" : "precisión técnica"}). Datos oficiales: Vereda La Cabaña (Manizales, 1.417 msnm, 1,0 ha, Q1 NO..Q4 SO). Vuelo oficial 25 m (GSD ${D.plan_25.gsd_cm_px} cm/px, ${D.plan_25.total_fotos} fotos, 100% cobertura) vs 30 m (${D.plan_30.gsd_cm_px} cm/px, 160 fotos, incumple CA3). QA ${D.qa.aceptadas}/${D.qa.extraidas} fotos. Ground Truth ${D.conteo.conteo} pl. Conteo IA actual: ${det} detectadas de ${esp} esperadas (déficit ${def}, ${obtenerHuecos().length} huecos GPX/CSV).`;
-}
-
-async function llamarDirectoLLM(pregunta, vista) {
-  const sp = construirPromptJS(vista);
-  const contents = aiHist.slice(-8).map(t => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] })).concat([{ role: "user", parts: [{ text: pregunta }] }]);
-  for (const m of ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]) {
-    try {
-      const r = await fetch(`https://aiplatform.googleapis.com/v1/publishers/google/models/${m}:generateContent?key=${encodeURIComponent(_VK)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: sp }] }, contents, generationConfig: { temperature: 0.3, maxOutputTokens: 600 } })
-      });
-      if (r.ok) {
-        const d = await r.json();
-        const t = ((d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts) || []).map(p => p.text || "").join("").trim();
-        if (t) return { txt: t, prov: "Vertex IA" };
-      }
-    } catch (_) {}
-  }
-  const msgs = [{ role: "system", content: sp }].concat(aiHist.slice(-8)).concat([{ role: "user", content: pregunta }]);
-  for (const m of ["google/gemini-2.5-flash", "openrouter/free", "openrouter/auto"]) {
-    try {
-      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${_OK}`, "HTTP-Referer": location.href || "https://agrodron.io", "X-Title": "AgroDron" },
-        body: JSON.stringify({ model: m, messages: msgs, temperature: 0.3, max_tokens: 600 })
-      });
-      if (r.ok) {
-        const d = await r.json();
-        const t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-        if (t) return { txt: t.trim(), prov: "OpenRouter" };
-      }
-    } catch (_) {}
-  }
-  return null;
 }
 
 function respuestaLocalJS(pregunta) {
@@ -868,11 +831,8 @@ async function enviarPreguntaAI(texto) {
     } catch (_) {}
   }
   if (!respTxt) {
-    const dir = await llamarDirectoLLM(limpio, vista);
-    if (dir) { respTxt = dir.txt; prov = dir.prov; }
-  }
-  if (!respTxt) {
     respTxt = respuestaLocalJS(limpio);
+    prov = "Offline";
   }
   espera.textContent = respTxt;
   qs("ai-prov-pill").textContent = prov;
