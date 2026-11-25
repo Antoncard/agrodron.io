@@ -1,0 +1,2 @@
+# Mantener fin de linea LF en artefactos del modelo para que el SHA-256 coincida en Windows y Linux
+modelos/**/*.json text eol=lf

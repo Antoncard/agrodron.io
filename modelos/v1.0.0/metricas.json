@@ -3,7 +3,7 @@
   "dataset_version": "v1.0",
   "arquitectura": "AgroDron-CV-ExG-Morphology-v1",
   "fecha_entrenamiento": "2026-11-18T21:22:50+00:00",
-  "sha256": "5dfc199455b5116ee3cff4e440073de6f3b46b1f92c1705033e4ad2e7e63f91c",
+  "sha256": "ce4dda49cea206214e5e9a38e59a4ca26df9a636082b1595eed238fd2bd06153",
   "ruta_pesos": "modelos/v1.0.0/pesos.json",
   "umbral_calibrado": 0.3,
   "muestras_train": 1921,
