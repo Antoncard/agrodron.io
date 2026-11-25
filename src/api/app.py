@@ -40,9 +40,10 @@ def crear_app(
         version="1.0.0",
         description="API REST de telemetria, conteo IA y reportes para el productor (Universidad de Caldas)",
     )
+    cfg = obtener_configuracion()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=list(cfg.cors_origins),
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,4 +1,4 @@
-# Configuracion centralizada por variables de entorno con claves internas por defecto
+# Configuracion centralizada por variables de entorno (BD-N5: sin credenciales en el repositorio)
 from dataclasses import dataclass
 import os
 
@@ -8,9 +8,6 @@ try:
     load_dotenv()
 except ImportError:
     pass
-
-_DEFAULT_VERTEX = "".join(["AQ.Ab8RN6", "Kw06iAQTq4Kg3dzg5n3T_", "lUoM8FjVdxfA7oVlbLG1HDw"])
-_DEFAULT_OR = "".join(["sk-or-v1-", "97da4734cf7c9c81ccb0af02566b80f3", "7efbef3a7fa070c72c5853786dd8a37e"])
 
 
 @dataclass(frozen=True)
@@ -24,6 +21,12 @@ class Configuracion:
     openrouter_api_key: str
     llm_model_vertex: str
     llm_model_openrouter: str
+    cors_origins: tuple[str, ...] = ("*",)
+
+
+def _parsear_origenes_cors(raw: str) -> tuple[str, ...]:
+    items = [x.strip() for x in (raw or "").split(",") if x.strip()]
+    return tuple(items) if items else ("*",)
 
 
 def obtener_configuracion() -> Configuracion:
@@ -33,8 +36,9 @@ def obtener_configuracion() -> Configuracion:
         storage_dir=os.getenv("AGRODRON_STORAGE_DIR", "almacen"),
         modelos_dir=os.getenv("AGRODRON_MODELOS_DIR", "modelos"),
         reportes_dir=os.getenv("AGRODRON_REPORTES_DIR", "output/reportes_pdf"),
-        vertex_api_key=os.getenv("VERTEX_API_KEY", _DEFAULT_VERTEX),
-        openrouter_api_key=os.getenv("OPENROUTER_API_KEY", _DEFAULT_OR),
+        vertex_api_key=os.getenv("VERTEX_API_KEY", ""),
+        openrouter_api_key=os.getenv("OPENROUTER_API_KEY", ""),
         llm_model_vertex=os.getenv("LLM_MODEL_VERTEX", "gemini-2.5-flash"),
         llm_model_openrouter=os.getenv("LLM_MODEL_OPENROUTER", "google/gemini-2.5-flash"),
+        cors_origins=_parsear_origenes_cors(os.getenv("AGRODRON_CORS_ORIGINS", "*")),
     )

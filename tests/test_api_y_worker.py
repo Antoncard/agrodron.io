@@ -168,7 +168,7 @@ class ApiYWorker(unittest.TestCase):
 
     def test_bd_n5_sin_credenciales_hardcodeadas_y_cli_bitacora_demo(self):
         # BD-N5: nunca almacenar credenciales de proveedores externos en el repositorio
-        for ruta in ("src/web/plantilla.py", "api/asistente.js", "public/index.html"):
+        for ruta in ("src/db/config.py", "src/web/plantilla.py", "api/asistente.js", "public/index.html"):
             if os.path.isfile(ruta):
                 with open(ruta, encoding="utf-8") as f:
                     contenido = f.read()

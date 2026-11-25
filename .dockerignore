@@ -1,0 +1,21 @@
+# Excluir secretos, entornos, cachés y artefactos pesados del contexto Docker (BD-N5)
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+*.db
+*.sqlite3
+backups/
+dataset/
+output/
+almacen/
+demo_salida/
+releases/
+.vscode/
+.idea/
+*.docx
+PROMPT_ANTIGRAVITY_agrodron_io.md

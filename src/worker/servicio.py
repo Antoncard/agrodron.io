@@ -1,7 +1,10 @@
 # Worker de automatizacion de eventos y ejecucion de corridas IA (Subtareas 2.2.1 y 2.2.2)
 import argparse
+import logging
 import os
 import time
+
+logger = logging.getLogger("agrodron.worker")
 
 from src.dominio.qa_fotos import auditar_lote
 from src.db.config import obtener_configuracion
@@ -118,12 +121,21 @@ def ejecutar_bucle_worker(
     ruta_raw = carpeta_raw or os.path.join(cfg.storage_dir, "raw")
 
     while True:
-        with sf() as session:
-            escanear_carpeta_raw(session, ruta_raw, parcela_id=parcela_id)
-            while True:
-                res = procesar_siguiente_corrida(session, reportes_dir=cfg.reportes_dir)
-                if res is None:
-                    break
+        try:
+            with sf() as session:
+                try:
+                    escanear_carpeta_raw(session, ruta_raw, parcela_id=parcela_id)
+                    while True:
+                        res = procesar_siguiente_corrida(session, reportes_dir=cfg.reportes_dir)
+                        if res is None:
+                            break
+                except Exception:
+                    session.rollback()
+                    raise
+        except Exception as exc:
+            logger.exception("Error en ciclo del worker AgroDron: %s", exc)
+            if una_vez:
+                raise
         if una_vez:
             break
         time.sleep(intervalo_s)

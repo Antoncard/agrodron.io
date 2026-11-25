@@ -26,6 +26,9 @@ services:
       DATABASE_URL: mysql+pymysql://${MYSQL_USER:-agrodron}:${MYSQL_PASSWORD:-agrodron_pass}@db:3306/${MYSQL_DATABASE:-agrodron}
       AGRODRON_API_KEY: ${AGRODRON_API_KEY:-agrodron-dev-key-2026}
       AGRODRON_STORAGE_DIR: /app/almacen
+      AGRODRON_CORS_ORIGINS: ${AGRODRON_CORS_ORIGINS:-*}
+      VERTEX_API_KEY: ${VERTEX_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
@@ -33,7 +36,7 @@ services:
       - ./modelos:/app/modelos
       - ./output:/app/output
     command: >
-      sh -c "alembic upgrade head && python -m src.cli db-init && uvicorn src.api.app:app --host 0.0.0.0 --port 8000"
+      sh -c "python -m src.cli db-init && uvicorn src.api.app:app --host 0.0.0.0 --port 8000"
 
   worker:
     build: .
